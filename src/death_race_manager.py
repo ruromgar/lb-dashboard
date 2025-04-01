@@ -438,7 +438,7 @@ class DeathRaceManager:
 
         st.markdown("<hr class='solid'>", unsafe_allow_html=True)
         st.markdown(
-            "<div class='big-title'>Que no mueran tus ganas! ¡La gloria cinematográfica depende de ello!</div>",
+            "<div class='big-title'>¡Que no mueran tus ganas! ¡La gloria cinematográfica depende de ello!</div>",
             unsafe_allow_html=True,
         )
 
