@@ -236,8 +236,8 @@ class DeathRaceManager:
                 {
                     "Título": display_title,
                     "Año": display_year,
-                    f"Nota {self.user1}": int(avg2) if avg2 is not None else None,
-                    f"Nota {self.user2}": int(avg1) if avg1 is not None else None,
+                    f"Nota {self.user2}": str(int(avg2)) if avg2 is not None else None,
+                    f"Nota {self.user1}": str(int(avg1)) if avg1 is not None else None,
                     "Nota media": f"{avg_both:.2f}" if avg_both is not None else None,
                 }
             )
