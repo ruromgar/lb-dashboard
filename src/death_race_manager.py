@@ -151,7 +151,7 @@ class DeathRaceManager:
             # If the leading user also has the higher rate, the gap will widen.
             # Or if the rates are exactly the same.
             if gap == 0:
-                st.info(
+                st.warning(
                     f"{self.lbm1.user} y {self.lbm2.user} están **empatados** en {datetime.date.today().year}!"
                 )
             elif gap > 0 and self.lbm1.rate >= self.lbm2.rate:
@@ -165,11 +165,11 @@ class DeathRaceManager:
 
         message = ""
         if self.lbm1.film_count.total - self.lbm2.film_count.total > 0:
-            message = f"<h3> 🏆 <span class='winning'>{self.lbm1.user} va ganando!</span> 🏆</h3>"
+            message = f"<h3 style='text-align:center;'> 🏆 <span class='winning'>{self.lbm1.user} va ganando!</span> 🏆</h3>"
         elif self.lbm1.film_count.total - self.lbm2.film_count.total < 0:
-            message = f"<h3> 🏆 <span class='winning'>{self.lbm2.user} va ganando!</span> 🏆</h3>"
+            message = f"<h3 style='text-align:center;'> 🏆 <span class='winning'>{self.lbm2.user} va ganando!</span> 🏆</h3>"
         else:
-            message = "<h3>🤝 Empate! 🤝</h3>"
+            message = "<h3 style='text-align:center;'>🤝 Empate! 🤝</h3>"
 
         st.markdown(message, unsafe_allow_html=True)
 
@@ -251,14 +251,12 @@ class DeathRaceManager:
         common_items.sort(key=sort_key, reverse=True)
         return common_items[:10]
 
-    def section_total_and_last_seen(self, lbm: LetterboxdManager):
+    def section_last_seen(self, lbm: LetterboxdManager):
         st.markdown(
             f'<span class="subsection">Participante: <span style="color: #2b7bba;">{lbm.user}</span></span>',
             unsafe_allow_html=True,
         )
 
-        st.write("**Número de películas:**", lbm.film_count.total)
-        st.write("### Últimas vistas")
         for entry in lbm.diary_entries[:10]:
             # Format date, e.g. "Feb 06"
             date_str = entry.entry_date.strftime("%b %d")
@@ -280,11 +278,10 @@ class DeathRaceManager:
                 """
             st.markdown(html_block, unsafe_allow_html=True)
 
-        weekly_count_1 = lbm.weekly_film_count
         st.metric(
             label="Películas en los últimos 7 días",
-            value=weekly_count_1.this_week,
-            delta=weekly_count_1.this_week - weekly_count_1.last_week,
+            value=lbm.weekly_film_count.this_week,
+            delta=lbm.weekly_film_count.this_week - lbm.weekly_film_count.last_week,
             help="La diferencia es el número de películas vistas en los últimos 7 días comparado con las vistas en los 7 días anteriores",
         )
 
@@ -305,11 +302,19 @@ class DeathRaceManager:
             f'<span class="subsection">Participante: <span style="color: #2b7bba;">{lbm.user}</span></span>',
             unsafe_allow_html=True,
         )
+        st.write("**Películas totales:**", lbm.film_count.total)
         st.write("**Películas Este Año:**", lbm.film_count.this_year)
+
+        st.write(f"Racha actual: **{lbm.streak.current_streak}** días")
+        st.write(f"Racha más larga: **{lbm.streak.longest_streak}** días")
+
         st.write("**Velocidad:**", f"{lbm.rate:.2f} pelis/día")
         column.metric(
             f"Proyección ({datetime.date.today().year})", f"{int(projection)}"
         )
+
+        if lbm.highlights:
+            st.info(f"Fun fact: {random.choice(lbm.highlights)}")
 
     def main(self):
         st.markdown(
@@ -319,12 +324,22 @@ class DeathRaceManager:
                 background: linear-gradient(to bottom right, #e8f9fd, #ffffff);
             }
             .big-title {
-                font-size: 2.2em;
+                font-size: 2em;
                 font-weight: bold;
                 color: #2b7bba;
+                text-align: center;
+                text-transform: uppercase;
+            }
+            .section-title {
+                font-size: 1.8em;
+                font-weight: bold;
+                color: #2b7bba;
+                text-align: center;
+                text-decoration: underline;
+                margin-bottom: 20px;
             }
             .subsection {
-                font-size: 1.3em;
+                font-size: 1.1em;
                 color: #444444;
                 text-decoration: underline;
             }
@@ -355,12 +370,16 @@ class DeathRaceManager:
         st.write(
             "¡Te damos la bienvenida a este show de gente pringada! ¡Dos gafas que no tienen nada más que hacer que pelearse por quién ve más películas!"
         )
+        st.markdown(
+            '<div class="section-title">Últimas Pelis Vistas</div>',
+            unsafe_allow_html=True,
+        )
 
         col1, col2 = st.columns(2, gap="large")
         with col1:
-            self.section_total_and_last_seen(self.lbm1)
+            self.section_last_seen(self.lbm1)
         with col2:
-            self.section_total_and_last_seen(self.lbm2)
+            self.section_last_seen(self.lbm2)
 
         message = ""
         if (
@@ -377,57 +396,36 @@ class DeathRaceManager:
             st.warning("Hay un empate en los últimos 7 días! 🤝", icon="⚠️")
 
         st.markdown(message, unsafe_allow_html=True)
-        st.markdown("<hr class='solid'>", unsafe_allow_html=True)
 
-        st.write("### 📊 Métricas de rendimiento 📊")
+        st.markdown(
+            '<div class="section-title">📊 Algunas Métricas de Rendimiento 📊</div>',
+            unsafe_allow_html=True,
+        )
         col1, col2 = st.columns(2)
         with col1:
             self.section_speed_and_estimate(self.lbm1, col1)
         with col2:
             self.section_speed_and_estimate(self.lbm2, col2)
 
-        # 2) Calculate the gap
         self.calculate_gap()
 
-        # 3) Plot the accumulated movies
-        df = self.calculate_accumulated_movies()
-        st.write(
-            f"### Total Películas (Desde Ene 1 hasta {datetime.date.today().strftime('%b %d')})"
+        st.markdown(
+            f'<div class="section-title">Total Películas (a {datetime.date.today().strftime("%b %d")})</div>',
+            unsafe_allow_html=True,
         )
+        df = self.calculate_accumulated_movies()
         st.line_chart(df[[self.lbm1.user, self.lbm2.user]], use_container_width=True)
 
-        # 3) Streak counter
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader(f"{self.lbm1.user}'s Streaks")
-            st.write(f"Current streak: **{self.lbm1.streak.current_streak}** days")
-            st.write(f"Longest streak: **{self.lbm1.streak.longest_streak}** days")
-
-        with col2:
-            st.subheader(f"{self.lbm2.user}'s Streaks")
-            st.write(f"Current streak: **{self.lbm2.streak.current_streak}** days")
-            st.write(f"Longest streak: **{self.lbm2.streak.longest_streak}** days")
-
-        # 4) Fun Facts
-        random_fact_1 = (
-            random.choice(self.lbm1.highlights)
-            if self.lbm1.highlights
-            else "No highlights for this user"
+        st.markdown(
+            f'<div class="section-title">Diagrama de Venn</div>',
+            unsafe_allow_html=True,
         )
-        random_fact_2 = (
-            random.choice(self.lbm2.highlights)
-            if self.lbm2.highlights
-            else "No highlights for this user"
-        )
-        if random_fact_1 or random_fact_2:
-            st.write("## Fun Facts!")
-            st.info(f"{self.lbm1.user}: {random_fact_1}")
-            st.info(f"{self.lbm2.user}: {random_fact_2}")
-
-        st.subheader("Diagrama de Venn")
         self.plot_venn_diagram()
 
-        st.subheader("Top 10 en común")
+        st.markdown(
+            f'<div class="section-title">Top 10 Películas en Común</div>',
+            unsafe_allow_html=True,
+        )
         st.write("Las películas que ambos han visto, ordenadas por nota media")
         top_10_common = self.top_common_by_avg_rating()
 
@@ -440,7 +438,7 @@ class DeathRaceManager:
 
         st.markdown("<hr class='solid'>", unsafe_allow_html=True)
         st.markdown(
-            "<div class='big-title'>Que no mueran tus ganas! La gloria cinematográfica depende de ello</div>",
+            "<div class='big-title'>Que no mueran tus ganas! ¡La gloria cinematográfica depende de ello!</div>",
             unsafe_allow_html=True,
         )
 

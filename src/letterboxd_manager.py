@@ -20,19 +20,31 @@ class LetterboxdManager:
         self.file_dir = Path(__file__).resolve().parent
         self.user = user
 
-        self.film_count: FilmCount = self._get_film_count()
-        self.diary_entries: List[DiaryEntry] = self._get_diary_entries()
-        self.weekly_film_count: WeeklyFilmCount = self._get_weekly_film_count()
-        self.streak: FilmStreak = self._get_streak()
-        self.rate: float = self._get_rate()
-        self.highlights: List[str] = self._generate_highlights()
+        raw_profile_data = self._fetch_profile_data()
+
+        if raw_profile_data is None:
+            # Means user doesn't exist or 404
+            self.film_count = FilmCount(0, 0)
+            self.diary_entries = []
+            self.weekly_film_count = WeeklyFilmCount(0, 0)
+            self.streak = FilmStreak(0, 0)
+            self.rate = 0.0
+            self.highlights = []
+        else:
+            # Parse the real data
+            self.film_count: FilmCount = self._get_film_count(raw_profile_data)
+            self.diary_entries: List[DiaryEntry] = self._get_diary_entries()
+            self.weekly_film_count: WeeklyFilmCount = self._get_weekly_film_count(self.diary_entries)
+            self.streak: FilmStreak = self._get_streak(self.diary_entries)
+            self.rate: float = self._get_rate(self.film_count)
+            self.highlights: List[str] = self._generate_highlights(self.diary_entries)
 
     def _fetch_profile_data(self) -> str:
-        local_data = self.file_dir / "fixtures" / f"profile_{self.user}.html"
-        if local_data.exists():
-            return local_data.read_text(encoding="utf-8")
-        else:
-            raise FileNotFoundError(f"No local file found at {local_data}")
+        # local_data = self.file_dir / "fixtures" / f"profile_{self.user}.html"
+        # if local_data.exists():
+        #     return local_data.read_text(encoding="utf-8")
+        # else:
+        #     raise FileNotFoundError(f"No local file found at {local_data}")
 
         url = f"https://letterboxd.com/{self.user}/"
         headers = {
@@ -43,11 +55,11 @@ class LetterboxdManager:
 
     def _fetch_diary_data(self) -> list[str]:
         """Fetch all diary pages for the specified Letterboxd user and year, returning a list of HTML strings (one per page)."""
-        local_data = self.file_dir / "fixtures" / f"diary_{self.user}_1.html"
-        if local_data.exists():
-            return local_data.read_text(encoding="utf-8")
-        else:
-            raise FileNotFoundError(f"No local file found at {local_data}")
+        # local_data = self.file_dir / "fixtures" / f"diary_{self.user}_1.html"
+        # if local_data.exists():
+        #     return local_data.read_text(encoding="utf-8")
+        # else:
+        #     raise FileNotFoundError(f"No local file found at {local_data}")
 
         year = datetime.date.today().year
         page_num = 1
@@ -97,9 +109,11 @@ class LetterboxdManager:
 
         return all_pages
 
-    def _get_film_count(self) -> FilmCount:
-        content = self._fetch_profile_data()
-        soup = BeautifulSoup(content, "html.parser")
+    def _get_film_count(self, raw_profile_data: str) -> FilmCount:
+        if raw_profile_data is None:
+            return FilmCount(total=0, this_year=0)
+
+        soup = BeautifulSoup(raw_profile_data, "html.parser")
 
         films_count = 0
         this_year_count = 0
@@ -131,7 +145,10 @@ class LetterboxdManager:
         return FilmCount(total=films_count, this_year=this_year_count)
 
     def _get_diary_entries(self) -> List[DiaryEntry]:
-        page_list = self._fetch_diary_data()
+        page_list = self._fetch_diary_data() 
+        if not page_list:
+            return []
+
         # Combine all pages into a single HTML string
         html = "".join(page_list)
 
@@ -211,17 +228,17 @@ class LetterboxdManager:
 
         return entries
 
-    def _get_weekly_film_count(self) -> WeeklyFilmCount:
+    def _get_weekly_film_count(self, diary_entries: List[DiaryEntry]) -> WeeklyFilmCount:
         """Return how many diary entries occurred in the last n days."""
         this_week_threshold = datetime.date.today() - datetime.timedelta(days=7)
         this_week_count = 0
-        for e in self.diary_entries:
+        for e in diary_entries:
             if e.entry_date >= this_week_threshold:
                 this_week_count += 1
 
         last_week_threshold = this_week_threshold - datetime.timedelta(days=7)
         last_week_count = 0
-        for e in self.diary_entries:
+        for e in diary_entries:
             if (
                 e.entry_date >= last_week_threshold
                 and e.entry_date < this_week_threshold
@@ -233,16 +250,13 @@ class LetterboxdManager:
             this_week=this_week_count,
         )
 
-    def _get_streak(self) -> FilmStreak:
-        if not self.diary_entries:
-            return FilmStreak(current_streak=0, longest_streak=0)
-
+    def _get_streak(self, diary_entries: List[DiaryEntry]) -> FilmStreak:
         # Sort entries by date ascending
-        sorted_entries = sorted(self.diary_entries, key=lambda e: e.entry_date)
+        sorted_entries = sorted(diary_entries, key=lambda e: e.entry_date)
 
         # We'll track consecutive days by comparing each date to the previous one
-        longest_streak = 1
-        current_streak = 1
+        longest_streak = 0
+        current_streak = 0
 
         for i in range(1, len(sorted_entries)):
             prev_day = sorted_entries[i - 1].entry_date
@@ -264,17 +278,17 @@ class LetterboxdManager:
             longest_streak=longest_streak,
         )
 
-    def _get_rate(self) -> float:
+    def _get_rate(self, film_count: FilmCount) -> float:
         day_of_year = datetime.date.today().timetuple().tm_yday  # e.g. 1..365 or 366
-        return self.film_count.this_year / day_of_year
+        return film_count.this_year / day_of_year
 
-    def _generate_highlights(self) -> List[str]:
+    def _generate_highlights(self, diary_entries: List[DiaryEntry]) -> List[str]:
         """Return a list of interesting stats about this user's viewing history."""
-        if not self.diary_entries:
+        if not diary_entries:
             return []
 
         # Sort by release_year, converting to int; handle missing or invalid years gracefully
-        valid_year_entries = [e for e in self.diary_entries if e.release_year.isdigit()]
+        valid_year_entries = [e for e in diary_entries if e.release_year.isdigit()]
         if not valid_year_entries:
             # If no valid years, skip these facts
             oldest_str = "No valid release years found."
@@ -291,7 +305,7 @@ class LetterboxdManager:
             )
 
         # For ratings, only consider entries that actually have a rating
-        rated_entries = [e for e in self.diary_entries if e.rating is not None]
+        rated_entries = [e for e in diary_entries if e.rating is not None]
         if rated_entries:
             highest_rated: DiaryEntry = max(rated_entries, key=lambda e: e.rating)
             lowest_rated: DiaryEntry = min(rated_entries, key=lambda e: e.rating)
@@ -302,7 +316,7 @@ class LetterboxdManager:
             lowest_rated_str = "No films have been rated."
 
         # Example: total films, total rated, rating average...
-        total_films = len(self.diary_entries)
+        total_films = len(diary_entries)
         total_rated = len(rated_entries)
         avg_rating = None
         if total_rated > 0:
