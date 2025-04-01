@@ -16,6 +16,12 @@ class WeeklyFilmCount:
 
 
 @dataclass
+class FilmStreak:
+    current_streak: int = 0
+    longest_streak: int = 0
+
+
+@dataclass
 class DiaryEntry:
     entry_date: datetime.date
     title: str
