@@ -51,6 +51,8 @@ class LetterboxdManager:
             "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0"
         }
         response = requests.get(url, headers=headers)
+        # with open(self.file_dir / "fixtures" / f"profile_{self.user}.html", "w", encoding="utf-8") as f:
+        #     f.write(response.text)
         return response.text
 
     def _fetch_diary_data(self) -> list[str]:
@@ -107,6 +109,8 @@ class LetterboxdManager:
             page_num += 1
             print(f"Moving to page {page_num} for {self.user} in {year}...")
 
+        # with open(self.file_dir / "fixtures" / f"diary_{self.user}.html", "w", encoding="utf-8") as f:
+        #     f.write("".join(all_pages))
         return all_pages
 
     def _get_film_count(self, raw_profile_data: str) -> FilmCount:
@@ -185,7 +189,7 @@ class LetterboxdManager:
                 continue
 
             # 2) Parse the title from <h3 class="headline-3">
-            title_elem = row.find("h3", class_="headline-3")
+            title_elem = row.find("h2", class_="name -primary prettify")
             if title_elem:
                 raw_title = title_elem.get_text()
                 # Convert all internal whitespace to single spaces
