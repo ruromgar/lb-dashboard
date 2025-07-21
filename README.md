@@ -9,6 +9,8 @@ A simple Streamlit app template for you to modify!
 1. Install the requirements
 
    ```
+   $ python3.11 -m venv venv
+   $ source venv/bin/activate
    $ pip install -r requirements.txt
    ```
 
