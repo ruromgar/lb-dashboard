@@ -1,14 +1,18 @@
 import datetime
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import List
+from typing import Optional
+from typing import Tuple
 
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
 from src.models import DiaryEntry
 from src.models import FilmCount
 from src.models import FilmStreak
+from src.models import UserProfile
 from src.models import WeeklyFilmCount
 
 
@@ -16,28 +20,40 @@ logger = logging.getLogger(__name__)
 
 
 class LetterboxdManager:
-    def __init__(self, user: str):
+    def __init__(self, user: str, feminine: bool = False):
         self.file_dir = Path(__file__).resolve().parent
         self.user = user
+        self.feminine = feminine
+        self.scraper = cloudscraper.create_scraper()
 
         raw_profile_data = self._fetch_profile_data()
 
         if raw_profile_data is None:
             # Means user doesn't exist or 404
             self.film_count = FilmCount(0, 0)
-            self.diary_entries = []
+            self.diary_entries: List[DiaryEntry] = []
             self.weekly_film_count = WeeklyFilmCount(0, 0)
             self.streak = FilmStreak(0, 0)
             self.rate = 0.0
-            self.highlights = []
+            self.highlights: List[str] = []
+            self.profile = UserProfile()
+            self.taste_labels: List[str] = []
+            self.busiest_day: Optional[Tuple[datetime.date, int]] = None
         else:
             # Parse the real data
             self.film_count: FilmCount = self._get_film_count(raw_profile_data)
             self.diary_entries: List[DiaryEntry] = self._get_diary_entries()
-            self.weekly_film_count: WeeklyFilmCount = self._get_weekly_film_count(self.diary_entries)
+            self.weekly_film_count: WeeklyFilmCount = self._get_weekly_film_count(
+                self.diary_entries
+            )
             self.streak: FilmStreak = self._get_streak(self.diary_entries)
             self.rate: float = self._get_rate(self.film_count)
             self.highlights: List[str] = self._generate_highlights(self.diary_entries)
+            self.profile: UserProfile = self._get_profile(raw_profile_data)
+            self.taste_labels: List[str] = self._generate_taste_labels()
+            self.busiest_day: Optional[
+                Tuple[datetime.date, int]
+            ] = self._get_busiest_day()
 
     def _fetch_profile_data(self) -> str:
         # local_data = self.file_dir / "fixtures" / f"profile_{self.user}.html"
@@ -47,16 +63,17 @@ class LetterboxdManager:
         #     raise FileNotFoundError(f"No local file found at {local_data}")
 
         url = f"https://letterboxd.com/{self.user}/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0"
-        }
-        response = requests.get(url, headers=headers)
-        # with open(self.file_dir / "fixtures" / f"profile_{self.user}.html", "w", encoding="utf-8") as f:
+        response = self.scraper.get(url)
+        # with open(
+        #     self.file_dir / "new_fixtures" / f"profile_{self.user}.html",
+        #     "w",
+        #     encoding="utf-8",
+        # ) as f:
         #     f.write(response.text)
         return response.text
 
     def _fetch_diary_data(self) -> list[str]:
-        """Fetch all diary pages for the specified Letterboxd user and year, returning a list of HTML strings (one per page)."""
+        """Fetch all diary pages for the specified Letterboxd user and year."""
         # local_data = self.file_dir / "fixtures" / f"diary_{self.user}_1.html"
         # if local_data.exists():
         #     return local_data.read_text(encoding="utf-8")
@@ -68,22 +85,20 @@ class LetterboxdManager:
         all_pages = []
 
         while True:
-            url = f"https://letterboxd.com/{self.user}/films/diary/for/{year}/page/{page_num}/"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0"
-            }
+            # Create a fresh scraper for each page to avoid Cloudflare blocking
+            diary_scraper = cloudscraper.create_scraper()
+
+            url = f"https://letterboxd.com/{self.user}/diary/films/for/{year}/page/{page_num}/"
 
             print(f"Fetching page {page_num} for {self.user} in {year}...")
 
-            response = requests.get(url, headers=headers)
+            response = diary_scraper.get(url)
             if response.status_code != 200:
-                # If we get a non-200, we break out (could raise an exception if you prefer)
                 print(
                     f"Page {page_num} returned status {response.status_code}, stopping."
                 )
                 break
 
-            # Store or parse data here
             html = response.text
             all_pages.append(html)
 
@@ -91,25 +106,24 @@ class LetterboxdManager:
             soup = BeautifulSoup(html, "html.parser")
             pagination_div = soup.find("div", class_="pagination")
             if not pagination_div:
-                # No pagination block at all => no more pages
                 break
 
             next_link = pagination_div.find("a", class_="next")
             if not next_link:
-                # There's no 'next' link => last page
                 break
 
-            # If the parent has "paginate-disabled", or something else signals no more pages, break
             parent_classes = next_link.parent.get("class", [])
             if "paginate-disabled" in parent_classes:
-                # "Older" link is disabled => no more pages
                 break
 
-            # Otherwise, let's move on to the next page
             page_num += 1
             print(f"Moving to page {page_num} for {self.user} in {year}...")
 
-        # with open(self.file_dir / "fixtures" / f"diary_{self.user}.html", "w", encoding="utf-8") as f:
+        # with open(
+        #     self.file_dir / "new_fixtures" / f"diary_{self.user}.html",
+        #     "w",
+        #     encoding="utf-8",
+        # ) as f:
         #     f.write("".join(all_pages))
         return all_pages
 
@@ -148,12 +162,36 @@ class LetterboxdManager:
 
         return FilmCount(total=films_count, this_year=this_year_count)
 
+    def _get_profile(self, raw_profile_data: str) -> UserProfile:
+        """Extract avatar URL and favourite films from the profile page."""
+        soup = BeautifulSoup(raw_profile_data, "html.parser")
+
+        # Avatar: <span class="avatar -large"> <img src="...">
+        avatar_url = ""
+        avatar_span = soup.find(
+            "span", class_=lambda c: c and "avatar" in c and "-large" in c
+        )
+        if avatar_span:
+            img = avatar_span.find("img")
+            if img and img.get("src"):
+                avatar_url = img["src"]
+
+        # Favourite films: <li class="favourite-production-poster-container">
+        #   -> child div with data-item-name="Title (Year)"
+        favourite_films = []
+        fav_items = soup.find_all("li", class_="favourite-production-poster-container")
+        for li in fav_items:
+            div = li.find("div", attrs={"data-item-name": True})
+            if div:
+                favourite_films.append(div["data-item-name"])
+
+        return UserProfile(avatar_url=avatar_url, favourite_films=favourite_films)
+
     def _get_diary_entries(self) -> List[DiaryEntry]:
-        page_list = self._fetch_diary_data() 
+        page_list = self._fetch_diary_data()
         if not page_list:
             return []
 
-        # Combine all pages into a single HTML string
         html = "".join(page_list)
 
         soup = BeautifulSoup(html, "html.parser")
@@ -161,18 +199,14 @@ class LetterboxdManager:
 
         entries = []
         for row in rows:
-            # 1) Parse the date from the anchor's href, e.g. /unnonueve/films/diary/for/2025/02/06/
-            day_cell = row.find("td", class_="td-day")
+            # 1) Parse the date from the anchor's href
+            day_cell = row.find("td", class_="col-daydate")
             date_anchor = day_cell.find("a") if day_cell else None
             if not date_anchor:
                 continue
 
             href = date_anchor.get("href", "")
-            # Example href format: /unnonueve/films/diary/for/2025/02/06/
-            # We'll split on '/' and pick out the parts
             parts = href.strip("/").split("/")
-            # parts might be: ["unnonueve", "films", "diary", "for", "2025", "02", "06"]
-            # year = parts[4], month = parts[5], day = parts[6]
             if len(parts) >= 7:
                 year_str = parts[4]
                 month_str = parts[5]
@@ -183,22 +217,21 @@ class LetterboxdManager:
                     d = int(day_str)
                     entry_date = datetime.date(y, m, d)
                 except ValueError:
-                    # If there's an unexpected parse error, skip
                     continue
             else:
                 continue
 
-            # 2) Parse the title from <h3 class="headline-3">
-            title_elem = row.find("h2", class_="name -primary prettify")
+            # 2) Parse the title from <h2> in the production cell
+            film_cell = row.find("td", class_="col-production")
+            title_elem = film_cell.find("h2") if film_cell else None
             if title_elem:
                 raw_title = title_elem.get_text()
-                # Convert all internal whitespace to single spaces
                 title = " ".join(raw_title.split())
             else:
                 title = "Unknown"
 
-            # 3) Parse the release year from <td class="td-released center"><span>1993</span></td>
-            release_year_elem = row.find("td", class_="td-released")
+            # 3) Parse the release year
+            release_year_elem = row.find("td", class_="col-releaseyear")
             release_year = (
                 release_year_elem.get_text(strip=True)
                 if release_year_elem
@@ -206,9 +239,8 @@ class LetterboxdManager:
             )
 
             # 4) Parse rating
-            #    If the row has class "not-rated", rating = None
-            #    Otherwise read the <input class="rateit-field"> value
-            if "not-rated" in row.get("class", []):
+            row_classes = row.get("class", [])
+            if "not-rated" in row_classes or "-has-no-rating" in row_classes:
                 rating = None
             else:
                 rating_input = row.find("input", class_="rateit-field")
@@ -216,23 +248,46 @@ class LetterboxdManager:
                     rating_str = rating_input.get("value", "")
                     try:
                         rating = int(rating_str)
+                        if rating == 0:
+                            rating = None
                     except ValueError:
                         rating = None
                 else:
                     rating = None
 
-            # 5) Construct DiaryEntry and add to the list
+            # 5) Parse liked status
+            # The like cell contains <span class="icon-liked"> for liked entries
+            liked = False
+            like_cell = row.find("td", class_="col-like")
+            if like_cell:
+                liked_icon = like_cell.find("span", class_="icon-liked")
+                if liked_icon:
+                    liked = True
+
+            # 6) Parse rewatch status
+            # If the rewatch td has "icon-status-off" in its classes, it's NOT a rewatch
+            is_rewatch = False
+            rewatch_cell = row.find("td", class_="col-rewatch")
+            if rewatch_cell:
+                rewatch_classes = rewatch_cell.get("class", [])
+                if "icon-status-off" not in rewatch_classes:
+                    is_rewatch = True
+
             entry = DiaryEntry(
                 entry_date=entry_date,
                 title=title,
                 release_year=release_year,
                 rating=rating,
+                liked=liked,
+                is_rewatch=is_rewatch,
             )
             entries.append(entry)
 
         return entries
 
-    def _get_weekly_film_count(self, diary_entries: List[DiaryEntry]) -> WeeklyFilmCount:
+    def _get_weekly_film_count(
+        self, diary_entries: List[DiaryEntry]
+    ) -> WeeklyFilmCount:
         """Return how many diary entries occurred in the last n days."""
         this_week_threshold = datetime.date.today() - datetime.timedelta(days=7)
         this_week_count = 0
@@ -255,10 +310,9 @@ class LetterboxdManager:
         )
 
     def _get_streak(self, diary_entries: List[DiaryEntry]) -> FilmStreak:
-        # Sort entries by date ascending
+        """Calculate current and longest viewing streaks."""
         sorted_entries = sorted(diary_entries, key=lambda e: e.entry_date)
 
-        # We'll track consecutive days by comparing each date to the previous one
         longest_streak = 0
         current_streak = 0
 
@@ -270,20 +324,18 @@ class LetterboxdManager:
             if gap == 1:
                 current_streak += 1
             else:
-                # Reset streak
                 current_streak = 1
 
             if current_streak > longest_streak:
                 longest_streak = current_streak
 
-        # After the loop, current_streak will be how many days consecutively up to the last entry
         return FilmStreak(
             current_streak=current_streak,
             longest_streak=longest_streak,
         )
 
     def _get_rate(self, film_count: FilmCount) -> float:
-        day_of_year = datetime.date.today().timetuple().tm_yday  # e.g. 1..365 or 366
+        day_of_year = datetime.date.today().timetuple().tm_yday
         return film_count.this_year / day_of_year
 
     def _generate_highlights(self, diary_entries: List[DiaryEntry]) -> List[str]:
@@ -291,14 +343,11 @@ class LetterboxdManager:
         if not diary_entries:
             return []
 
-        # Sort by release_year, converting to int; handle missing or invalid years gracefully
         valid_year_entries = [e for e in diary_entries if e.release_year.isdigit()]
         if not valid_year_entries:
-            # If no valid years, skip these facts
             oldest_str = "No valid release years found."
             newest_str = "No valid release years found."
         else:
-            # Find entry with min year and max year
             oldest_entry = min(valid_year_entries, key=lambda e: int(e.release_year))
             newest_entry = max(valid_year_entries, key=lambda e: int(e.release_year))
             oldest_str = (
@@ -308,7 +357,6 @@ class LetterboxdManager:
                 f"Newest film: '{newest_entry.title}' ({newest_entry.release_year})"
             )
 
-        # For ratings, only consider entries that actually have a rating
         rated_entries = [e for e in diary_entries if e.rating is not None]
         if rated_entries:
             highest_rated: DiaryEntry = max(rated_entries, key=lambda e: e.rating)
@@ -319,7 +367,6 @@ class LetterboxdManager:
             highest_rated_str = "No films have been rated."
             lowest_rated_str = "No films have been rated."
 
-        # Example: total films, total rated, rating average...
         total_films = len(diary_entries)
         total_rated = len(rated_entries)
         avg_rating = None
@@ -337,7 +384,6 @@ class LetterboxdManager:
             else "No average rating (no rated films)."
         )
 
-        # Build a list of highlight strings. You can reorder or expand these as you like.
         highlights = [
             oldest_str,
             newest_str,
@@ -346,6 +392,55 @@ class LetterboxdManager:
             total_str,
             rated_str,
             avg_str,
-            # Add more creative facts if desired
         ]
         return highlights
+
+    def _generate_taste_labels(self) -> List[str]:
+        """Auto-assign fun taste labels based on viewing data."""
+        labels = []
+        if not self.diary_entries:
+            return labels
+
+        f = self.feminine
+        rated = [e for e in self.diary_entries if e.rating is not None]
+        if rated:
+            avg = sum(e.rating for e in rated) / len(rated)
+            if avg >= 7.5:
+                labels.append("La Romantica" if f else "El Romantico")
+            elif avg < 5:
+                labels.append("La Critica Implacable" if f else "El Critico Implacable")
+
+        valid_years = [e for e in self.diary_entries if e.release_year.isdigit()]
+        if valid_years:
+            years = [int(e.release_year) for e in valid_years]
+            sorted_years = sorted(years)
+            median_year = sorted_years[len(sorted_years) // 2]
+            if median_year < 2000:
+                labels.append("Arqueologa del Cine" if f else "Arqueologo del Cine")
+
+        if self.streak.longest_streak >= 7:
+            labels.append("Maratonista")
+
+        rewatch_count = sum(1 for e in self.diary_entries if e.is_rewatch)
+        if rewatch_count >= 3:
+            labels.append("La Nostalgica" if f else "El Nostalgico")
+
+        like_count = sum(1 for e in self.diary_entries if e.liked)
+        if like_count >= len(self.diary_entries) * 0.4 and len(self.diary_entries) >= 5:
+            labels.append("Corazon Generoso")
+
+        if self.weekly_film_count.this_week >= 5:
+            labels.append("En Racha")
+
+        return labels[:3]
+
+    def _get_busiest_day(self) -> Optional[Tuple[datetime.date, int]]:
+        """Find the date with the most diary entries."""
+        if not self.diary_entries:
+            return None
+
+        date_counts = Counter(e.entry_date for e in self.diary_entries)
+        busiest_date, count = date_counts.most_common(1)[0]
+        if count >= 2:
+            return (busiest_date, count)
+        return None

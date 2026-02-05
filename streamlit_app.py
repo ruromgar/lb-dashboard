@@ -1,9 +1,8 @@
-import streamlit as st
 from src.death_race_manager import DeathRaceManager
 
 
 if __name__ == "__main__":
-    drm = DeathRaceManager("unnonueve", "garciamorales")
+    drm = DeathRaceManager("unnonueve", "garciamorales", feminine2=True)
     drm.main()
     # st.title("Letterboxd Race")
 
@@ -12,7 +11,7 @@ if __name__ == "__main__":
 
     # if user1 and user2:
     #     st.write(f"You selected {user1} and {user2}!")
-    
+
     #     if st.button("Show Race"):
     #         drm = DeathRaceManager("unnonueve", "garciamorales")#(user1, user2)  #("unnonueve", "garciamorales")
     #         drm.main()
