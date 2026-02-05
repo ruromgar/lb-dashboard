@@ -1,5 +1,7 @@
 import datetime
 from dataclasses import dataclass
+from dataclasses import field
+from typing import List
 from typing import Optional
 
 
@@ -27,3 +29,11 @@ class DiaryEntry:
     title: str
     release_year: str
     rating: Optional[int] = None
+    liked: bool = False
+    is_rewatch: bool = False
+
+
+@dataclass
+class UserProfile:
+    avatar_url: str = ""
+    favourite_films: List[str] = field(default_factory=list)
