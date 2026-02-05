@@ -1,5 +1,6 @@
 import datetime
 import logging
+import time
 from collections import Counter
 from pathlib import Path
 from typing import List
@@ -84,6 +85,10 @@ class LetterboxdManager:
         page_num = 1
         all_pages = []
 
+        # Delay before first diary request to avoid Cloudflare rate-limiting
+        # after the profile fetch
+        time.sleep(2)
+
         while True:
             # Create a fresh scraper for each page to avoid Cloudflare blocking
             diary_scraper = cloudscraper.create_scraper()
@@ -118,6 +123,7 @@ class LetterboxdManager:
 
             page_num += 1
             print(f"Moving to page {page_num} for {self.user} in {year}...")
+            time.sleep(2)
 
         # with open(
         #     self.file_dir / "new_fixtures" / f"diary_{self.user}.html",
