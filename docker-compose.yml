@@ -1,0 +1,15 @@
+services:
+  lb-dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - lb-cache:/app/cache
+    environment:
+      - LB_CACHE_DIR=/app/cache
+      - LB_CACHE_TTL=3600
+      - LB_PASSWORD=${LB_PASSWORD:-}
+    restart: unless-stopped
+
+volumes:
+  lb-cache:

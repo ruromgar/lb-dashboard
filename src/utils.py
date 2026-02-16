@@ -1,8 +1,7 @@
 def rating_to_stars(rating: int) -> str:
-    """Convert a 0-10 integer rating into a 5-star (with optional half-star) string.
+    """Convert a 0-10 rating to a star string.
 
-    For instance:     10   -> "★★★★★"     9    -> "★★★★½"     7    ->
-    "★★★½"     None -> "-"
+    For instance: 10 -> "★★★★★", 9 -> "★★★★½", None -> "-"
     """
     if rating is None:
         return "-"

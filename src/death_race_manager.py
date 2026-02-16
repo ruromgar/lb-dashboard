@@ -5,6 +5,7 @@ from collections import Counter
 from collections import defaultdict
 from typing import Dict
 from typing import List
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,12 +40,13 @@ class DeathRaceManager:
         user2: str,
         feminine1: bool = False,
         feminine2: bool = False,
+        cache_dir: Optional[str] = None,
     ):
         self.user1 = user1
         self.user2 = user2
 
-        self.lbm1 = LetterboxdManager(user1, feminine=feminine1)
-        self.lbm2 = LetterboxdManager(user2, feminine=feminine2)
+        self.lbm1 = LetterboxdManager(user1, feminine=feminine1, cache_dir=cache_dir)
+        self.lbm2 = LetterboxdManager(user2, feminine=feminine2, cache_dir=cache_dir)
 
     # ------------------------------------------------------------------ #
     #  CSS Theme
@@ -564,7 +566,9 @@ class DeathRaceManager:
     def section_last_seen(self, lbm: LetterboxdManager):
         for entry in lbm.diary_entries[:10]:
             date_str = entry.entry_date.strftime("%b %d")
-            rating_str = rating_to_stars(entry.rating)
+            rating_str = (
+                rating_to_stars(entry.rating) if entry.rating is not None else "-"
+            )
 
             badges = ""
             if entry.liked:
@@ -650,8 +654,8 @@ class DeathRaceManager:
     def plot_decade_distribution(self):
         """Plot films per decade for each user as a grouped bar chart."""
 
-        def get_decades(entries):
-            decades = Counter()
+        def get_decades(entries: list) -> Counter:
+            decades: Counter = Counter()
             for e in entries:
                 if e.release_year.isdigit():
                     decade = (int(e.release_year) // 10) * 10
@@ -732,8 +736,8 @@ class DeathRaceManager:
     def plot_weekday_activity(self):
         """Plot diary entries per day of week as a grouped bar chart."""
 
-        def get_weekday_counts(entries):
-            counts = Counter()
+        def get_weekday_counts(entries: list) -> Counter:
+            counts: Counter = Counter()
             for e in entries:
                 counts[e.entry_date.weekday()] += 1
             return counts
@@ -854,7 +858,7 @@ class DeathRaceManager:
             html = f"""
             <div class="common-film-card">
                 <span class="common-film-avg">{avg_str}</span>
-                <div class="common-film-title">{item['title']} ({item['year']})</div>
+                <div class="common-film-title">{item["title"]} ({item["year"]})</div>
                 <div class="common-film-ratings">
                     {self.user1}: {r1_str} &nbsp;&bull;&nbsp; {self.user2}: {r2_str}
                 </div>

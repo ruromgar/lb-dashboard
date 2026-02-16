@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 import time
 from collections import Counter
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Tuple
 import cloudscraper
 from bs4 import BeautifulSoup
 
+from src.cache import get_cached
+from src.cache import save_to_cache
 from src.models import DiaryEntry
 from src.models import FilmCount
 from src.models import FilmStreak
@@ -21,93 +24,97 @@ logger = logging.getLogger(__name__)
 
 
 class LetterboxdManager:
-    def __init__(self, user: str, feminine: bool = False):
+    def __init__(
+        self,
+        user: str,
+        feminine: bool = False,
+        cache_dir: Optional[str] = None,
+    ):
         self.file_dir = Path(__file__).resolve().parent
         self.user = user
         self.feminine = feminine
+        if cache_dir is not None:
+            self.cache_dir = cache_dir
+        else:
+            self.cache_dir = os.environ.get("LB_CACHE_DIR", "./cache")
         self.scraper = cloudscraper.create_scraper()
 
         raw_profile_data = self._fetch_profile_data()
 
         if raw_profile_data is None:
             # Means user doesn't exist or 404
-            self.film_count = FilmCount(0, 0)
+            self.film_count: FilmCount = FilmCount(0, 0)
             self.diary_entries: List[DiaryEntry] = []
-            self.weekly_film_count = WeeklyFilmCount(0, 0)
-            self.streak = FilmStreak(0, 0)
-            self.rate = 0.0
+            self.weekly_film_count: WeeklyFilmCount = WeeklyFilmCount(0, 0)
+            self.streak: FilmStreak = FilmStreak(0, 0)
+            self.rate: float = 0.0
             self.highlights: List[str] = []
-            self.profile = UserProfile()
+            self.profile: UserProfile = UserProfile()
             self.taste_labels: List[str] = []
             self.busiest_day: Optional[Tuple[datetime.date, int]] = None
         else:
             # Parse the real data
-            self.film_count: FilmCount = self._get_film_count(raw_profile_data)
-            self.diary_entries: List[DiaryEntry] = self._get_diary_entries()
-            self.weekly_film_count: WeeklyFilmCount = self._get_weekly_film_count(
-                self.diary_entries
-            )
-            self.streak: FilmStreak = self._get_streak(self.diary_entries)
-            self.rate: float = self._get_rate(self.film_count)
-            self.highlights: List[str] = self._generate_highlights(self.diary_entries)
-            self.profile: UserProfile = self._get_profile(raw_profile_data)
-            self.taste_labels: List[str] = self._generate_taste_labels()
-            self.busiest_day: Optional[
-                Tuple[datetime.date, int]
-            ] = self._get_busiest_day()
+            self.film_count = self._get_film_count(raw_profile_data)
+            self.diary_entries = self._get_diary_entries()
+            self.weekly_film_count = self._get_weekly_film_count(self.diary_entries)
+            self.streak = self._get_streak(self.diary_entries)
+            self.rate = self._get_rate(self.film_count)
+            self.highlights = self._generate_highlights(self.diary_entries)
+            self.profile = self._get_profile(raw_profile_data)
+            self.taste_labels = self._generate_taste_labels()
+            self.busiest_day = self._get_busiest_day()
 
     def _fetch_profile_data(self) -> str:
-        # local_data = self.file_dir / "fixtures" / f"profile_{self.user}.html"
-        # if local_data.exists():
-        #     return local_data.read_text(encoding="utf-8")
-        # else:
-        #     raise FileNotFoundError(f"No local file found at {local_data}")
+        """Fetch profile HTML, using cache when available."""
+        cache_key = f"{self.user}_profile.html"
+        cached = get_cached(self.cache_dir, cache_key)
+        if cached is not None:
+            return cached
 
         url = f"https://letterboxd.com/{self.user}/"
         response = self.scraper.get(url)
-        # with open(
-        #     self.file_dir / "new_fixtures" / f"profile_{self.user}.html",
-        #     "w",
-        #     encoding="utf-8",
-        # ) as f:
-        #     f.write(response.text)
+        save_to_cache(self.cache_dir, cache_key, response.text)
         return response.text
 
-    def _fetch_diary_data(self) -> list[str]:
+    def _fetch_diary_data(self) -> List[str]:
         """Fetch all diary pages for the specified Letterboxd user and year."""
-        # local_data = self.file_dir / "fixtures" / f"diary_{self.user}_1.html"
-        # if local_data.exists():
-        #     return local_data.read_text(encoding="utf-8")
-        # else:
-        #     raise FileNotFoundError(f"No local file found at {local_data}")
-
         year = datetime.date.today().year
         page_num = 1
         all_pages = []
-
-        # Delay before first diary request to avoid Cloudflare rate-limiting
-        # after the profile fetch
-        time.sleep(2)
+        needs_delay = True
 
         while True:
-            # Create a fresh scraper for each page to avoid Cloudflare blocking
-            diary_scraper = cloudscraper.create_scraper()
+            cache_key = f"{self.user}_diary_{year}_page_{page_num}.html"
+            cached = get_cached(self.cache_dir, cache_key)
 
-            url = f"https://letterboxd.com/{self.user}/diary/films/for/{year}/page/{page_num}/"
+            if cached is not None:
+                html = cached
+            else:
+                if needs_delay:
+                    time.sleep(2)
+                    needs_delay = False
+                else:
+                    time.sleep(2)
 
-            print(f"Fetching page {page_num} for {self.user} in {year}...")
-
-            response = diary_scraper.get(url)
-            if response.status_code != 200:
-                print(
-                    f"Page {page_num} returned status {response.status_code}, stopping."
+                diary_scraper = cloudscraper.create_scraper()
+                url = (
+                    f"https://letterboxd.com/{self.user}/"
+                    f"diary/films/for/{year}/page/{page_num}/"
                 )
-                break
+                print(f"Fetching page {page_num} for {self.user} in {year}...")
+                response = diary_scraper.get(url)
+                if response.status_code != 200:
+                    print(
+                        f"Page {page_num} returned status "
+                        f"{response.status_code}, stopping."
+                    )
+                    break
 
-            html = response.text
+                html = response.text
+                save_to_cache(self.cache_dir, cache_key, html)
+
             all_pages.append(html)
 
-            # Check if there's a "next" link
             soup = BeautifulSoup(html, "html.parser")
             pagination_div = soup.find("div", class_="pagination")
             if not pagination_div:
@@ -122,15 +129,7 @@ class LetterboxdManager:
                 break
 
             page_num += 1
-            print(f"Moving to page {page_num} for {self.user} in {year}...")
-            time.sleep(2)
 
-        # with open(
-        #     self.file_dir / "new_fixtures" / f"diary_{self.user}.html",
-        #     "w",
-        #     encoding="utf-8",
-        # ) as f:
-        #     f.write("".join(all_pages))
         return all_pages
 
     def _get_film_count(self, raw_profile_data: str) -> FilmCount:
@@ -365,8 +364,8 @@ class LetterboxdManager:
 
         rated_entries = [e for e in diary_entries if e.rating is not None]
         if rated_entries:
-            highest_rated: DiaryEntry = max(rated_entries, key=lambda e: e.rating)
-            lowest_rated: DiaryEntry = min(rated_entries, key=lambda e: e.rating)
+            highest_rated = max(rated_entries, key=lambda e: e.rating or 0)
+            lowest_rated = min(rated_entries, key=lambda e: e.rating or 0)
             highest_rated_str = f"Highest rated: '{highest_rated.title}' ({highest_rated.release_year}) with {highest_rated.rating}/10"
             lowest_rated_str = f"Lowest rated: '{lowest_rated.title}' ({lowest_rated.release_year}) with {lowest_rated.rating}/10"
         else:
@@ -403,14 +402,14 @@ class LetterboxdManager:
 
     def _generate_taste_labels(self) -> List[str]:
         """Auto-assign fun taste labels based on viewing data."""
-        labels = []
+        labels: List[str] = []
         if not self.diary_entries:
             return labels
 
         f = self.feminine
         rated = [e for e in self.diary_entries if e.rating is not None]
         if rated:
-            avg = sum(e.rating for e in rated) / len(rated)
+            avg = sum(e.rating for e in rated if e.rating is not None) / len(rated)
             if avg >= 7.5:
                 labels.append("La Romantica" if f else "El Romantico")
             elif avg < 5:

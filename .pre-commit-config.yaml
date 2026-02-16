@@ -9,30 +9,25 @@ repos:
     rev: 3.0.6
     hooks:
       - id: djhtml
-      # - id: djcss
-      # - id: djjs
+        exclude: src/fixtures/
+      - id: djcss
+        exclude: static/.*
+      - id: djjs
+        exclude: static/.*
 
-  - repo: https://github.com/asottile/reorder_python_imports
-    rev: v2.7.1
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.8
     hooks:
-      - id: reorder-python-imports
-
-  - repo: https://github.com/ambv/black
-    rev: 23.3.0
-    hooks:
-      - id: black
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.270
-    hooks:
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix, "--ignore=E501"]
+      - id: ruff-check
+        args: [ --fix ]
+      - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.1.0
+    rev: v4.6.0
     hooks:
       - id: check-case-conflict
       - id: check-json
+        exclude: \.devcontainer/
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-toml
@@ -47,47 +42,29 @@ repos:
       - id: fix-byte-order-marker
       - id: mixed-line-ending
       - id: no-commit-to-branch
-        stages: [commit]
+        stages: [pre-commit]
 
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v0.971
-  #   hooks:
-  #   - id: mypy
-  #     name: Run type checks
-  #     args: ["--config=setup.cfg"]
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-pytz
+          - types-requests
 
-  - repo: https://github.com/myint/docformatter
-    rev: v1.4
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.7.6
     hooks:
       - id: docformatter
-        args: [--in-place, --wrap-summaries=0]
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: "3.9.2"
-    hooks:
-      - id: flake8
-        args: ["--config=setup.cfg"]
-        language_version: python3
+        args: [--wrap-summaries=88, --wrap-descriptions=88]
 
   - repo: https://github.com/pycqa/pydocstyle
-    rev: 6.1.1
+    rev: 6.3.0
     hooks:
       - id: pydocstyle
-        args: ["--config=setup.cfg"]
-        language_version: python3
 
-  - repo: https://github.com/commitizen-tools/commitizen
-    rev: "v4.1.0"
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
     hooks:
-      - id: commitizen
-        stages:
-          - commit-msg
-
-  - repo: local
-    hooks:
-      - id: no-db-files
-        name: Do not commit database files
-        entry: Database files must not be committed.
-        language: fail
-        types: [file]
-        files: \.(sqlite3|db)$
+      - id: gitleaks
+        exclude: '^\.env\.test$'
