@@ -29,6 +29,15 @@ def get_cached(
     return path.read_text(encoding="utf-8")
 
 
+def get_stale_cached(cache_dir: str, cache_key: str) -> Optional[str]:
+    """Return cached content regardless of TTL, or None if no cache exists."""
+    path = Path(cache_dir) / cache_key
+    if not path.exists():
+        return None
+    logger.info("Stale cache fallback for %s", cache_key)
+    return path.read_text(encoding="utf-8")
+
+
 def save_to_cache(cache_dir: str, cache_key: str, content: str) -> None:
     """Write content to the cache directory."""
     path = Path(cache_dir) / cache_key

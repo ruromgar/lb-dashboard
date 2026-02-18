@@ -7,8 +7,7 @@ services:
       - lb-cache:/app/cache
     environment:
       - LB_CACHE_DIR=/app/cache
-      - LB_CACHE_TTL=3600
-      - LB_PASSWORD=${LB_PASSWORD:-}
+      - LB_CACHE_TTL=1
     restart: unless-stopped
 
 volumes:

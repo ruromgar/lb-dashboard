@@ -407,8 +407,12 @@ class DeathRaceManager:
         df[self.user1] = [daily_counts_1.get(d.date(), 0) for d in df.index]
         df[self.user2] = [daily_counts_2.get(d.date(), 0) for d in df.index]
 
-        df[self.user1] = df[self.user1].cumsum()
-        df[self.user2] = df[self.user2].cumsum()
+        # Account for films logged without diary entries
+        offset_1 = max(0, self.lbm1.film_count.this_year - len(filtered_1))
+        offset_2 = max(0, self.lbm2.film_count.this_year - len(filtered_2))
+
+        df[self.user1] = df[self.user1].cumsum() + offset_1
+        df[self.user2] = df[self.user2].cumsum() + offset_2
 
         return df
 

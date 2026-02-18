@@ -12,6 +12,7 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 from src.cache import get_cached
+from src.cache import get_stale_cached
 from src.cache import save_to_cache
 from src.models import DiaryEntry
 from src.models import FilmCount
@@ -73,6 +74,11 @@ class LetterboxdManager:
 
         url = f"https://letterboxd.com/{self.user}/"
         response = self.scraper.get(url)
+        if response.status_code != 200:
+            stale = get_stale_cached(self.cache_dir, cache_key)
+            if stale is not None:
+                return stale
+            return None
         save_to_cache(self.cache_dir, cache_key, response.text)
         return response.text
 
@@ -108,10 +114,14 @@ class LetterboxdManager:
                         f"Page {page_num} returned status "
                         f"{response.status_code}, stopping."
                     )
-                    break
-
-                html = response.text
-                save_to_cache(self.cache_dir, cache_key, html)
+                    stale = get_stale_cached(self.cache_dir, cache_key)
+                    if stale is not None:
+                        html = stale
+                    else:
+                        break
+                else:
+                    html = response.text
+                    save_to_cache(self.cache_dir, cache_key, html)
 
             all_pages.append(html)
 
